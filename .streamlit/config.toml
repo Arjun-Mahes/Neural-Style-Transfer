@@ -1,6 +1,0 @@
-[server]
-# Uploads are resized to at most 384 px anyway, so big files only waste memory
-maxUploadSize = 10
-
-[browser]
-gatherUsageStats = false
