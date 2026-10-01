@@ -1,5 +1,8 @@
+# CPU-only PyTorch: the default Linux wheels bundle multi-GB CUDA libraries,
+# which Streamlit Community Cloud doesn't need (no GPU) and can't fit.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.4
+torchvision>=0.19
 streamlit>=1.40
-torch>=2.2
-torchvision>=0.17
-pillow
 numpy
+pillow

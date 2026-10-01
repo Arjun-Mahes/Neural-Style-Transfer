@@ -5,6 +5,7 @@ matrices of five conv layers, and Adam optimizing the image itself. The only cha
 are a higher learning rate and fewer steps so it finishes in minutes in a GUI,
 plus a callback so the app can show progress.
 """
+import os
 from typing import Callable, Optional
 
 import numpy as np
@@ -40,8 +41,36 @@ def pick_device() -> torch.device:
 
 
 def load_vgg(device: torch.device) -> torch.nn.Module:
-    """Pretrained VGG19 feature extractor with frozen weights."""
-    vgg = models.vgg19(weights=models.VGG19_Weights.IMAGENET1K_V1).features
+    """Pretrained VGG19 feature extractor with frozen weights.
+
+    Memory-lean so it fits on small hosts like Streamlit Community Cloud. The full
+    checkpoint is ~550 MB, almost all of it the classifier we don't use. The first time,
+    it's loaded once, just the convolutional weights the losses need (through conv5_1)
+    are saved to a small file (~80 MB), and the rest is freed. After that only the small
+    file is ever read. The network is also cut after conv5_1, which skips unused layers.
+    """
+    # Keep layers through conv5_1 *and the ReLU after it*: VGG's ReLUs are in-place, so in
+    # the original notebook that ReLU also rewrites the stored conv5_1 features.
+    last = max(int(i) for i in LAYERS) + 2          # layers 0..29
+    checkpoints = os.path.join(torch.hub.get_dir(), "checkpoints")
+    small = os.path.join(checkpoints, f"vgg19-features-{last}.pth")
+
+    if not os.path.exists(small):
+        weights = models.VGG19_Weights.IMAGENET1K_V1
+        full = os.path.join(checkpoints, os.path.basename(weights.url))
+        if not os.path.exists(full):
+            os.makedirs(checkpoints, exist_ok=True)
+            torch.hub.download_url_to_file(weights.url, full)
+        state = torch.load(full, map_location="cpu", weights_only=True)
+        features = {k[len("features."):]: v.clone() for k, v in state.items()
+                    if k.startswith("features.") and int(k.split(".")[1]) < last}
+        del state
+        torch.save(features, small)
+        os.remove(full)                             # the big file isn't needed any more
+        del features
+
+    vgg = models.vgg19(weights=None).features[:last]
+    vgg.load_state_dict(torch.load(small, map_location="cpu", weights_only=True))
     for param in vgg.parameters():
         param.requires_grad_(False)
     return vgg.to(device).eval()
